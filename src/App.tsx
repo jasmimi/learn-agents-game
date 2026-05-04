@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import mapArt from "./assets/festival-map.svg";
 import { getMissionById, getNextMissionId, missions } from "./data/missions";
 import {
@@ -19,10 +19,27 @@ import type {
   ConfigEvaluation,
   ConceptId,
   InstructionStyle,
+  MetricKey,
   MemoryPolicy,
   Mission,
   MissionResult
 } from "./types";
+
+type TourTarget =
+  | "campaign"
+  | "mission"
+  | "metrics"
+  | "workbench"
+  | "config"
+  | "tools"
+  | "inbox"
+  | "mastery";
+
+interface TutorialStep {
+  target: TourTarget;
+  title: string;
+  body: string;
+}
 
 const autonomyLabels: Record<AutonomyLevel, string> = {
   assist: "Assist only",
@@ -45,9 +62,124 @@ const instructionLabels: Record<InstructionStyle, string> = {
   overloaded: "Overloaded prompt"
 };
 
+const tutorialStorageKey = "festival-agents-tutorial-v1";
+
+const tutorialSteps: TutorialStep[] = [
+  {
+    target: "campaign",
+    title: "Pick the current mission",
+    body:
+      "The campaign unlocks one mission at a time. Start with the selected mission, finish its incidents, then use the debrief to unlock the next scenario."
+  },
+  {
+    target: "mission",
+    title: "Read the mission brief",
+    body:
+      "The brief tells you what kind of agent decision the mission is teaching. The learning goals are clues for the setup choices that will matter most."
+  },
+  {
+    target: "metrics",
+    title: "Watch the operating metrics",
+    body:
+      "Before launch these numbers preview your agent setup risk. During a run, your incident choices move safety, guest experience, budget, reliability, and trust."
+  },
+  {
+    target: "workbench",
+    title: "Configure the agent",
+    body:
+      "Tune the objective, autonomy, memory, instructions, tools, guardrails, handoffs, and evals. Good setups make the simulation more resilient before you make any incident choices."
+  },
+  {
+    target: "config",
+    title: "Use the config score as feedback",
+    body:
+      "The config score estimates how well your agent design fits the mission. Strengths and risks below the workbench explain what is helping or hurting the setup."
+  },
+  {
+    target: "tools",
+    title: "Inspect tools before deciding",
+    body:
+      "There are two tool moments: equip tools in the workbench, then inspect simulated tool output here during the scenario. Some choices get better results only when the right tool has been inspected."
+  },
+  {
+    target: "inbox",
+    title: "Launch and choose responses",
+    body:
+      "Launch the simulation when the setup looks reasonable. Each incident gives you response options, and missing tool insight warnings tell you when evidence is still needed."
+  },
+  {
+    target: "mastery",
+    title: "Debrief and improve",
+    body:
+      "After the last incident, the debrief explains your choices and updates concept mastery. Replay a mission to improve the score, or move to the next unlocked mission."
+  }
+];
+
+const metricHelp: Record<MetricKey, string> = {
+  safety:
+    "Safety measures whether the agent keeps risky decisions under control. Human approval, verified information, and escalation rules usually protect it.",
+  guest:
+    "Guest experience reflects whether attendees get useful, timely help. It improves when the agent handles repeatable work without ignoring context.",
+  budget:
+    "Budget tracks cost and financial risk. Strong guardrails prevent agents from making expensive promises or creating avoidable manual cleanup.",
+  reliability:
+    "Reliability measures how consistently the system follows the right process. Clear instructions, tools, evals, and handoffs usually raise it.",
+  trust:
+    "Trust reflects whether staff and guests can rely on the agent. Transparent limits, approvals, and evidence-backed responses protect it."
+};
+
+const helpText = {
+  objective:
+    "A useful objective names the job, the desired outcome, and when to escalate. If it could apply to any assistant, it is probably too vague for a reliable agent.",
+  autonomy:
+    "Autonomy controls how much the agent can do without a person. Use lower autonomy for risky or irreversible work, and higher autonomy only when the task has clear bounds and safe stop rules.",
+  memory:
+    "Memory controls what context carries forward. Session or scoped memory usually gives continuity without storing every private detail forever.",
+  instructions:
+    "Instruction style shapes how predictable the agent is. Checklist and outcome-bound prompts usually beat vague goals because they define process, evidence, and success.",
+  config:
+    "This score is a design-fit estimate, not a final grade. It rewards agent settings that match the mission's expert pattern and applies a starting metric adjustment when you launch.",
+  workbenchTools:
+    "Workbench tools equip the agent with capabilities. The Tool Simulator still needs to be inspected during a run so your choices can use fresh evidence.",
+  guardrails:
+    "Guardrails are rules that keep the agent inside safe operating limits, such as escalating legal or safety decisions instead of acting alone.",
+  handoffs:
+    "Handoffs define who owns the next step when the agent cannot safely finish. Good handoffs include context, confidence, and a clear receiving owner.",
+  evals:
+    "Evals are checks that compare the agent's output with the mission goal. They help you catch failures instead of assuming a plausible answer worked.",
+  toolSimulator:
+    "Inspecting a tool reveals deterministic scenario evidence. Some expert choices only earn their full effect after the relevant tools have been inspected.",
+  scenarioInbox:
+    "This is where the run happens. Launch the mission, inspect relevant tools, choose a response for each incident, then read the debrief after the final event."
+};
+
 const guardrailOptions = getGuardrailOptions();
 const handoffOptions = getHandoffOptions();
 const evalOptions = getEvalOptions();
+
+function loadTutorialComplete() {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+
+  try {
+    return localStorage.getItem(tutorialStorageKey) === "complete";
+  } catch {
+    return false;
+  }
+}
+
+function saveTutorialComplete() {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+
+  try {
+    localStorage.setItem(tutorialStorageKey, "complete");
+  } catch {
+    // Tutorial state is helpful but not required for the game to run.
+  }
+}
 
 export default function App() {
   const firstMissionId = missions[0].id;
@@ -64,6 +196,8 @@ export default function App() {
   const [appliedChoices, setAppliedChoices] = useState<AppliedChoice[]>([]);
   const [runResult, setRunResult] = useState<MissionResult | undefined>();
   const [configAtLaunch, setConfigAtLaunch] = useState<ConfigEvaluation | undefined>();
+  const [tutorialOpen, setTutorialOpen] = useState(() => !loadTutorialComplete());
+  const [tutorialStep, setTutorialStep] = useState(0);
 
   const configEvaluation = useMemo(() => evaluateAgentConfig(mission, agents), [agents, mission]);
   const previewMetrics = useMemo(
@@ -75,6 +209,7 @@ export default function App() {
   const storedResult = !launched ? progress.results[mission.id] : undefined;
   const activeResult = runResult ?? storedResult;
   const campaignPercent = Math.round((progress.completedMissionIds.length / missions.length) * 100);
+  const activeTourTarget = tutorialOpen ? tutorialSteps[tutorialStep]?.target : undefined;
   const masteryAverage = Math.round(
     Object.values(progress.conceptMastery).reduce((sum, score) => sum + score, 0) /
       Object.values(progress.conceptMastery).length
@@ -186,6 +321,20 @@ export default function App() {
     }
   }
 
+  function tourActive(target: TourTarget) {
+    return activeTourTarget === target ? "true" : undefined;
+  }
+
+  function openTutorial() {
+    setTutorialStep(0);
+    setTutorialOpen(true);
+  }
+
+  function closeTutorial() {
+    saveTutorialComplete();
+    setTutorialOpen(false);
+  }
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -201,6 +350,10 @@ export default function App() {
               <Icon name="play" />
               Launch Mission
             </button>
+            <button className="ghost-button" type="button" onClick={openTutorial}>
+              <Icon name="help" />
+              Tutorial
+            </button>
             <button className="ghost-button" type="button" onClick={resetAllProgress}>
               <Icon name="reset" />
               Reset Progress
@@ -214,7 +367,7 @@ export default function App() {
 
       <main className="game-layout">
         <aside className="sidebar">
-          <section className="panel compact">
+          <section className="panel compact" data-tour="campaign" data-tour-active={tourActive("campaign")}>
             <div className="panel-title-row">
               <h2>Campaign</h2>
               <span className="pill">{campaignPercent}%</span>
@@ -254,21 +407,29 @@ export default function App() {
         </aside>
 
         <section className="workspace">
-          <MissionHeader mission={mission} activeResult={activeResult} />
+          <MissionHeader mission={mission} activeResult={activeResult} tourActive={tourActive("mission")} />
 
-          <div className="metrics-grid" aria-label="Operational metrics">
+          <div
+            className="metrics-grid"
+            aria-label="Operational metrics"
+            data-tour="metrics"
+            data-tour-active={tourActive("metrics")}
+          >
             {metricKeys.map((key) => (
-              <MetricCard key={key} label={labelMetric(key)} value={visibleMetrics[key]} />
+              <MetricCard key={key} metric={key} label={labelMetric(key)} value={visibleMetrics[key]} />
             ))}
           </div>
 
           <div className="two-column">
-            <section className="panel">
+            <section className="panel" data-tour="workbench" data-tour-active={tourActive("workbench")}>
               <div className="panel-title-row">
                 <h2>Agent Workbench</h2>
-                <span className={`score-badge ${configEvaluation.score >= 76 ? "good" : configEvaluation.score < 52 ? "warn" : ""}`}>
-                  Config {configEvaluation.score}
-                </span>
+                <div className="score-help" data-tour="config" data-tour-active={tourActive("config")}>
+                  <span className={`score-badge ${configEvaluation.score >= 76 ? "good" : configEvaluation.score < 52 ? "warn" : ""}`}>
+                    Config {configEvaluation.score}
+                  </span>
+                  <HelpTooltip label="Config score">{helpText.config}</HelpTooltip>
+                </div>
               </div>
               <p className="small-copy">
                 Configure autonomy, memory, tools, handoffs, guardrails, and evals before the run.
@@ -288,9 +449,12 @@ export default function App() {
               <ConfigFeedback evaluation={configEvaluation} />
             </section>
 
-            <section className="panel">
+            <section className="panel" data-tour="tools" data-tour-active={tourActive("tools")}>
               <div className="panel-title-row">
-                <h2>Tool Simulator</h2>
+                <div className="heading-with-help">
+                  <h2>Tool Simulator</h2>
+                  <HelpTooltip label="Tool simulator">{helpText.toolSimulator}</HelpTooltip>
+                </div>
                 <span className="pill">{usedTools.length}/{mission.tools.length} used</span>
               </div>
               <p className="small-copy">
@@ -325,9 +489,12 @@ export default function App() {
             </section>
           </div>
 
-          <section className="panel inbox-panel">
+          <section className="panel inbox-panel" data-tour="inbox" data-tour-active={tourActive("inbox")}>
             <div className="panel-title-row">
-              <h2>Scenario Inbox</h2>
+              <div className="heading-with-help">
+                <h2>Scenario Inbox</h2>
+                <HelpTooltip label="Scenario inbox">{helpText.scenarioInbox}</HelpTooltip>
+              </div>
               <span className="pill">
                 {launched ? `Event ${eventIndex + 1}/${mission.events.length}` : activeResult ? "Debrief" : "Ready"}
               </span>
@@ -343,7 +510,7 @@ export default function App() {
         </section>
 
         <aside className="sidebar rightbar">
-          <section className="panel compact">
+          <section className="panel compact" data-tour="mastery" data-tour-active={tourActive("mastery")}>
             <div className="panel-title-row">
               <h2>Mastery</h2>
               <span className="pill">{masteryAverage}%</span>
@@ -372,13 +539,30 @@ export default function App() {
           </section>
         </aside>
       </main>
+      {tutorialOpen && (
+        <TutorialOverlay
+          steps={tutorialSteps}
+          currentIndex={tutorialStep}
+          onBack={() => setTutorialStep((current) => Math.max(0, current - 1))}
+          onNext={() => setTutorialStep((current) => Math.min(tutorialSteps.length - 1, current + 1))}
+          onClose={closeTutorial}
+        />
+      )}
     </div>
   );
 }
 
-function MissionHeader({ mission, activeResult }: { mission: Mission; activeResult?: MissionResult }) {
+function MissionHeader({
+  mission,
+  activeResult,
+  tourActive
+}: {
+  mission: Mission;
+  activeResult?: MissionResult;
+  tourActive?: string;
+}) {
   return (
-    <section className="mission-header">
+    <section className="mission-header" data-tour="mission" data-tour-active={tourActive}>
       <div>
         <p className="eyebrow">{mission.festivalPhase}</p>
         <h2>{mission.title}</h2>
@@ -425,19 +609,27 @@ function AgentEditor({
           <p>{agent.role}</p>
         </div>
       </div>
-      <label>
-        Objective
+      <div className="field-control">
+        <div className="label-title" id={`${agent.id}-objective-label`}>
+          <span>Objective</span>
+          <HelpTooltip label="Objective">{helpText.objective}</HelpTooltip>
+        </div>
         <textarea
+          aria-labelledby={`${agent.id}-objective-label`}
           value={agent.objective}
           disabled={disabled}
           rows={3}
           onChange={(event) => updateAgent(agent.id, { objective: event.target.value })}
         />
-      </label>
+      </div>
       <div className="field-grid">
-        <label>
-          Autonomy
+        <div className="field-control">
+          <div className="label-title" id={`${agent.id}-autonomy-label`}>
+            <span>Autonomy</span>
+            <HelpTooltip label="Autonomy">{helpText.autonomy}</HelpTooltip>
+          </div>
           <select
+            aria-labelledby={`${agent.id}-autonomy-label`}
             value={agent.autonomy}
             disabled={disabled}
             onChange={(event) => updateAgent(agent.id, { autonomy: event.target.value as AutonomyLevel })}
@@ -448,10 +640,14 @@ function AgentEditor({
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Memory
+        </div>
+        <div className="field-control">
+          <div className="label-title" id={`${agent.id}-memory-label`}>
+            <span>Memory</span>
+            <HelpTooltip label="Memory">{helpText.memory}</HelpTooltip>
+          </div>
           <select
+            aria-labelledby={`${agent.id}-memory-label`}
             value={agent.memory}
             disabled={disabled}
             onChange={(event) => updateAgent(agent.id, { memory: event.target.value as MemoryPolicy })}
@@ -462,10 +658,14 @@ function AgentEditor({
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Instructions
+        </div>
+        <div className="field-control">
+          <div className="label-title" id={`${agent.id}-instructions-label`}>
+            <span>Instructions</span>
+            <HelpTooltip label="Instructions">{helpText.instructions}</HelpTooltip>
+          </div>
           <select
+            aria-labelledby={`${agent.id}-instructions-label`}
             value={agent.instructionStyle}
             disabled={disabled}
             onChange={(event) =>
@@ -478,10 +678,11 @@ function AgentEditor({
               </option>
             ))}
           </select>
-        </label>
+        </div>
       </div>
       <CheckboxGroup
         title="Tools"
+        help={helpText.workbenchTools}
         values={mission.tools.map((tool) => ({ id: tool.id, label: tool.name }))}
         selected={agent.selectedTools}
         disabled={disabled}
@@ -489,6 +690,7 @@ function AgentEditor({
       />
       <CheckboxGroup
         title="Guardrails"
+        help={helpText.guardrails}
         values={guardrailOptions.map((item) => ({ id: item, label: item }))}
         selected={agent.guardrails}
         disabled={disabled}
@@ -496,6 +698,7 @@ function AgentEditor({
       />
       <CheckboxGroup
         title="Handoffs"
+        help={helpText.handoffs}
         values={handoffOptions.map((item) => ({ id: item, label: item }))}
         selected={agent.handoffs}
         disabled={disabled}
@@ -503,6 +706,7 @@ function AgentEditor({
       />
       <CheckboxGroup
         title="Evals"
+        help={helpText.evals}
         values={evalOptions.map((item) => ({ id: item, label: item }))}
         selected={agent.evals}
         disabled={disabled}
@@ -514,12 +718,14 @@ function AgentEditor({
 
 function CheckboxGroup({
   title,
+  help,
   values,
   selected,
   disabled,
   onToggle
 }: {
   title: string;
+  help?: string;
   values: Array<{ id: string; label: string }>;
   selected: string[];
   disabled: boolean;
@@ -527,7 +733,10 @@ function CheckboxGroup({
 }) {
   return (
     <div className="checkbox-group">
-      <h4>{title}</h4>
+      <div className="checkbox-title">
+        <span>{title}</span>
+        {help && <HelpTooltip label={title}>{help}</HelpTooltip>}
+      </div>
       <div className="chip-grid">
         {values.map((value) => (
           <label className={`choice-chip ${selected.includes(value.id) ? "active" : ""}`} key={value.id}>
@@ -678,11 +887,173 @@ function Debrief({
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: number }) {
+function TutorialOverlay({
+  steps,
+  currentIndex,
+  onBack,
+  onNext,
+  onClose
+}: {
+  steps: TutorialStep[];
+  currentIndex: number;
+  onBack: () => void;
+  onNext: () => void;
+  onClose: () => void;
+}) {
+  const step = steps[currentIndex];
+  const cardRef = useRef<HTMLElement>(null);
+  const isLast = currentIndex === steps.length - 1;
+
+  useEffect(() => {
+    const target = document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`);
+    target?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    cardRef.current?.focus({ preventScroll: true });
+  }, [step.target]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+
+      if (event.key === "ArrowLeft" && currentIndex > 0) {
+        onBack();
+      }
+
+      if (event.key === "ArrowRight") {
+        if (isLast) {
+          onClose();
+        } else {
+          onNext();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentIndex, isLast, onBack, onClose, onNext]);
+
+  return (
+    <div className="tutorial-layer">
+      <div className="tutorial-scrim" onClick={onClose} />
+      <section
+        className="tutorial-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tutorial-title"
+        tabIndex={-1}
+        ref={cardRef}
+      >
+        <div className="tutorial-card-head">
+          <span className="pill">
+            Step {currentIndex + 1}/{steps.length}
+          </span>
+          <button className="icon-button" type="button" aria-label="Skip tutorial" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <h2 id="tutorial-title">{step.title}</h2>
+        <p>{step.body}</p>
+        <div className="tutorial-actions">
+          <button className="ghost-button tutorial-ghost" type="button" onClick={onClose}>
+            <Icon name="close" />
+            Skip
+          </button>
+          <div className="tutorial-step-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={currentIndex === 0}
+              onClick={onBack}
+            >
+              <Icon name="back" />
+              Back
+            </button>
+            <button className="primary-button" type="button" onClick={isLast ? onClose : onNext}>
+              <Icon name={isLast ? "check" : "next"} />
+              {isLast ? "Done" : "Next"}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function HelpTooltip({ label, children }: { label: string; children: string }) {
+  const [open, setOpen] = useState(false);
+  const tooltipId = useId();
+  const wrapperRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <span
+      className="help-tooltip"
+      ref={wrapperRef}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onBlur={(event) => {
+        const nextTarget = event.relatedTarget as Node | null;
+        if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+          setOpen(false);
+        }
+      }}
+    >
+      <button
+        className="help-trigger"
+        type="button"
+        aria-label={`Help: ${label}`}
+        aria-expanded={open}
+        aria-describedby={open ? tooltipId : undefined}
+        onFocus={() => setOpen(true)}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        <Icon name="help" />
+      </button>
+      {open && (
+        <span className="help-popover" id={tooltipId} role="tooltip">
+          {children}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function MetricCard({ metric, label, value }: { metric: MetricKey; label: string; value: number }) {
   return (
     <article className="metric-card">
       <div>
-        <span>{label}</span>
+        <span className="metric-label-with-help">
+          <span>{label}</span>
+          <HelpTooltip label={`${label} metric`}>{metricHelp[metric]}</HelpTooltip>
+        </span>
         <strong>{value}</strong>
       </div>
       <div className="metric-track">
@@ -707,7 +1078,10 @@ function Icon({ name }: { name: string }) {
     inspect: <path d="M10 18a8 8 0 1 1 5.3-2l3.7 3.7M10 7v3l2 2" />,
     agent: <path d="M12 3v3M7 7h10a3 3 0 0 1 3 3v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-5a3 3 0 0 1 3-3Zm1 5h.01M16 12h.01M9 16h6" />,
     send: <path d="M4 12 20 4l-4 16-4-6-8-2Zm8 2 8-10" />,
-    next: <path d="M5 12h14M13 6l6 6-6 6" />
+    next: <path d="M5 12h14M13 6l6 6-6 6" />,
+    back: <path d="M19 12H5m6-6-6 6 6 6" />,
+    help: <path d="M9.1 9a3 3 0 1 1 5.8 1.2c-.8 1.2-2.4 1.4-2.8 2.8M12 17h.01M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Z" />,
+    close: <path d="M18 6 6 18M6 6l12 12" />
   };
 
   return (
