@@ -82,12 +82,20 @@ button:disabled {
 
 .hero-actions,
 .panel-title-row,
+.heading-with-help,
+.score-help,
+.label-title,
+.checkbox-title,
+.metric-label-with-help,
 .tool-header,
 .agent-card-head,
 .mission-facts,
 .decision-card,
 .launch-panel,
-.debrief .result-mark {
+.debrief .result-mark,
+.tutorial-card-head,
+.tutorial-actions,
+.tutorial-step-actions {
   display: flex;
   align-items: center;
 }
@@ -144,6 +152,14 @@ button:disabled {
   transform: translateY(-1px);
 }
 
+.primary-button:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled,
+.small-button:disabled {
+  opacity: .52;
+  transform: none;
+}
+
 .secondary-button {
   padding: 10px 14px;
   color: #fff8df;
@@ -168,6 +184,187 @@ button:disabled {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #d0d8cf;
+  border-radius: 8px;
+  color: #14201f;
+  background: #fbfcf7;
+}
+
+.heading-with-help,
+.score-help,
+.label-title,
+.checkbox-title,
+.metric-label-with-help {
+  gap: 6px;
+  min-width: 0;
+}
+
+.heading-with-help h2 {
+  margin: 0;
+}
+
+.score-help {
+  flex-wrap: nowrap;
+}
+
+[data-tour] {
+  scroll-margin: 92px;
+}
+
+[data-tour-active="true"] {
+  position: relative;
+  z-index: 70;
+  outline: 3px solid #f4b75f;
+  box-shadow:
+    0 0 0 8px rgba(244, 183, 95, .28),
+    0 18px 38px rgba(20, 32, 31, .24);
+}
+
+.help-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.help-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 1px solid #bdd2c8;
+  border-radius: 50%;
+  color: #27514d;
+  background: #edf5ee;
+}
+
+.help-trigger:hover,
+.help-trigger:focus-visible {
+  color: #13231f;
+  outline: 2px solid #f4b75f;
+  outline-offset: 2px;
+  background: #f6dda8;
+}
+
+.help-trigger .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.help-popover {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 10px);
+  z-index: 90;
+  width: min(300px, calc(100vw - 32px));
+  padding: 11px 12px;
+  color: #23312e;
+  border: 1px solid #c8d4c8;
+  border-radius: 8px;
+  background: #fffef9;
+  box-shadow: 0 16px 34px rgba(20, 32, 31, .18);
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-transform: none;
+  transform: translateX(-50%);
+}
+
+.help-popover::before {
+  position: absolute;
+  top: -6px;
+  left: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  border-left: 1px solid #c8d4c8;
+  border-top: 1px solid #c8d4c8;
+  background: #fffef9;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.panel-title-row .help-popover,
+.score-help .help-popover {
+  right: 0;
+  left: auto;
+  transform: none;
+}
+
+.panel-title-row .help-popover::before,
+.score-help .help-popover::before {
+  right: 14px;
+  left: auto;
+}
+
+.tutorial-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tutorial-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(20, 32, 31, .48);
+  pointer-events: auto;
+}
+
+.tutorial-card {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 80;
+  display: grid;
+  gap: 14px;
+  width: min(430px, calc(100vw - 32px));
+  padding: 18px;
+  border: 1px solid #d0d8cf;
+  border-radius: 8px;
+  background: #fbfcf7;
+  box-shadow: 0 24px 70px rgba(20, 32, 31, .28);
+  pointer-events: auto;
+}
+
+.tutorial-card:focus {
+  outline: none;
+}
+
+.tutorial-card-head,
+.tutorial-actions {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tutorial-card h2 {
+  margin: 0;
+  color: #14201f;
+}
+
+.tutorial-card p {
+  margin: 0;
+  color: #4b5753;
+  line-height: 1.55;
+}
+
+.tutorial-step-actions {
+  gap: 10px;
+}
+
+.tutorial-ghost {
+  color: #14201f;
+  border-color: #cbd5cb;
+  background: #fffef9;
 }
 
 .game-layout {
@@ -396,6 +593,12 @@ button:disabled {
   font-weight: 800;
 }
 
+.metric-card .help-popover {
+  color: #23312e;
+  font-size: .82rem;
+  font-weight: 700;
+}
+
 .metric-card strong {
   color: #14201f;
 }
@@ -452,12 +655,17 @@ button:disabled {
   line-height: 1.5;
 }
 
-label {
+label,
+.field-control {
   display: grid;
   gap: 6px;
   color: #35413e;
   font-size: .84rem;
   font-weight: 850;
+}
+
+.label-title {
+  justify-content: start;
 }
 
 textarea,
@@ -486,10 +694,11 @@ textarea {
   gap: 8px;
 }
 
-.checkbox-group h4 {
+.checkbox-title {
   margin: 0;
   color: #14201f;
   font-size: .86rem;
+  font-weight: 850;
 }
 
 .chip-grid {
@@ -783,5 +992,33 @@ textarea {
   .secondary-button,
   .ghost-button {
     width: 100%;
+  }
+
+  .tutorial-card {
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+
+  .tutorial-actions,
+  .tutorial-step-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .help-popover,
+  .panel-title-row .help-popover,
+  .score-help .help-popover {
+    right: auto;
+    left: 0;
+    width: min(280px, calc(100vw - 32px));
+    transform: none;
+  }
+
+  .help-popover::before,
+  .panel-title-row .help-popover::before,
+  .score-help .help-popover::before {
+    right: auto;
+    left: 12px;
   }
 }
